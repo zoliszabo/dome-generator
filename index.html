@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dome Designer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #control-panel {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background-color: rgba(26, 26, 46, 0.9);
+            padding: 20px;
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            z-index: 9999;
+            min-width: 250px;
+        }
+        
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .panel-header.collapsed {
+            margin-bottom: 0;
+        }
+        
+        .panel-header h3 {
+            margin: 0;
+            font-size: 16px;
+        }
+        
+        #toggle-btn {
+            background-color: transparent;
+            border: 1px solid #00aaff;
+            color: #00aaff;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            padding: 2px 8px;
+            line-height: 1;
+        }
+        
+        .input-group {
+            margin-bottom: 12px;
+        }
+        
+        .input-group:last-of-type {
+            margin-bottom: 15px;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 4px;
+        }
+        
+        .input-group input {
+            width: 100%;
+            padding: 6px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            background-color: #2a2a3e;
+            color: white;
+        }
+        
+        #copy-btn {
+            width: 100%;
+            padding: 10px;
+            background-color: #00aaff;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }
+        
+        #copy-btn:hover {
+            background-color: #0088cc;
+        }
+        
+        #copy-btn.copied {
+            background-color: #00ff88;
+        }
+        
+        .panel-content {
+            display: block;
+        }
+        
+        .panel-content.hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    
+    <div id="control-panel">
+        <div class="panel-header" id="panel-header">
+            <h3>Dome Parameters</h3>
+            <button id="toggle-btn">−</button>
+        </div>
+        
+        <div class="panel-content" id="panel-content">
+            <div class="input-group">
+                <label>Bottom diameter (cm):</label>
+                <input type="number" id="diameter" value="100">
+            </div>
+            
+            <div class="input-group">
+                <label>Height (cm):</label>
+                <input type="number" id="height" value="52.5">
+            </div>
+            
+            <div class="input-group">
+                <label>Thickness of the wall (cm):</label>
+                <input type="number" id="thickness" value="3">
+            </div>
+            
+            <div class="input-group">
+                <label>Number of rings:</label>
+                <input type="number" id="rings" value="4">
+            </div>
+            
+            <div class="input-group">
+                <label>Number of trapezoids per ring:</label>
+                <input type="number" id="trapezoids" value="10">
+            </div>
+            
+            <button id="copy-btn">Copy calculated dimensions</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let scene, camera, renderer;
+        let cameraAngle = { theta: Math.PI / 4, phi: Math.PI / 3 };
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        const cameraDistance = 120;
+        let dimensionsText = '';
+        
+        // Get input elements
+        const diameterInput = document.getElementById('diameter');
+        const heightInput = document.getElementById('height');
+        const thicknessInput = document.getElementById('thickness');
+        const ringsInput = document.getElementById('rings');
+        const trapezoidsInput = document.getElementById('trapezoids');
+        const copyBtn = document.getElementById('copy-btn');
+        const toggleBtn = document.getElementById('toggle-btn');
+        const panelContent = document.getElementById('panel-content');
+        const panelHeader = document.getElementById('panel-header');
+        
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a2e);
+            
+            camera = new THREE.PerspectiveCamera(
+                75,
+                window.innerWidth / window.innerHeight,
+                0.1,
+                1000
+            );
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+            
+            updateCameraPosition();
+            setupMouseControls();
+            buildDome();
+            animate();
+        }
+        
+        function updateCameraPosition() {
+            camera.position.x = cameraDistance * Math.sin(cameraAngle.theta) * Math.cos(cameraAngle.phi);
+            camera.position.y = cameraDistance * Math.sin(cameraAngle.phi);
+            camera.position.z = cameraDistance * Math.cos(cameraAngle.theta) * Math.cos(cameraAngle.phi);
+            camera.lookAt(0, 25, 0);
+        }
+        
+        function setupMouseControls() {
+            // Mouse controls
+            renderer.domElement.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                previousMousePosition = { x: e.clientX, y: e.clientY };
+            });
+            
+            renderer.domElement.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                
+                const deltaX = e.clientX - previousMousePosition.x;
+                const deltaY = e.clientY - previousMousePosition.y;
+                
+                cameraAngle.theta -= deltaX * 0.01;
+                cameraAngle.phi -= deltaY * 0.01;
+                
+                cameraAngle.phi = Math.max(0.1, Math.min(Math.PI - 0.1, cameraAngle.phi));
+                
+                updateCameraPosition();
+                previousMousePosition = { x: e.clientX, y: e.clientY };
+            });
+            
+            renderer.domElement.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+            
+            renderer.domElement.addEventListener('mouseleave', () => {
+                isDragging = false;
+            });
+            
+            // Touch controls
+            renderer.domElement.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    isDragging = true;
+                    previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                    e.preventDefault();
+                }
+            });
+            
+            renderer.domElement.addEventListener('touchmove', (e) => {
+                if (!isDragging || e.touches.length !== 1) return;
+                
+                const deltaX = e.touches[0].clientX - previousMousePosition.x;
+                const deltaY = e.touches[0].clientY - previousMousePosition.y;
+                
+                cameraAngle.theta -= deltaX * 0.01;
+                cameraAngle.phi -= deltaY * 0.01;
+                
+                cameraAngle.phi = Math.max(0.1, Math.min(Math.PI - 0.1, cameraAngle.phi));
+                
+                updateCameraPosition();
+                previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                e.preventDefault();
+            });
+            
+            renderer.domElement.addEventListener('touchend', () => {
+                isDragging = false;
+            });
+            
+            renderer.domElement.addEventListener('touchcancel', () => {
+                isDragging = false;
+            });
+        }
+        
+        function createTrapezoidEdges(p1, p2, p3, p4, p5, p6, p7, p8) {
+            const geometry = new THREE.BufferGeometry();
+            const vertices = [];
+            
+            vertices.push(...p1, ...p2);
+            vertices.push(...p2, ...p3);
+            vertices.push(...p3, ...p4);
+            vertices.push(...p4, ...p1);
+            
+            vertices.push(...p5, ...p6);
+            vertices.push(...p6, ...p7);
+            vertices.push(...p7, ...p8);
+            vertices.push(...p8, ...p5);
+            
+            vertices.push(...p1, ...p5);
+            vertices.push(...p2, ...p6);
+            vertices.push(...p3, ...p7);
+            vertices.push(...p4, ...p8);
+            
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            return geometry;
+        }
+        
+        function clearDome() {
+            const objectsToRemove = [];
+            scene.children.forEach(child => {
+                if (child.type === 'LineSegments' || child.type === 'GridHelper' || child.type === 'AxesHelper') {
+                    objectsToRemove.push(child);
+                }
+            });
+            objectsToRemove.forEach(obj => {
+                scene.remove(obj);
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) obj.material.dispose();
+            });
+        }
+        
+        function buildDome() {
+            clearDome();
+            
+            const bottomDiameter = parseFloat(diameterInput.value);
+            const height = parseFloat(heightInput.value);
+            const thickness = parseFloat(thicknessInput.value);
+            const numRings = parseInt(ringsInput.value);
+            const trapezoidsPerRing = parseInt(trapezoidsInput.value);
+            
+            const bottomRadius = bottomDiameter / 2;
+            
+            dimensionsText = '=== DOME DIMENSIONS ===\n';
+            dimensionsText += `Base diameter: ${bottomDiameter} cm\n`;
+            dimensionsText += `Height: ${height} cm\n`;
+            dimensionsText += `Wall thickness: ${thickness} cm\n`;
+            dimensionsText += `Number of rings: ${numRings}\n`;
+            dimensionsText += `Trapezoids per ring: ${trapezoidsPerRing}\n`;
+            dimensionsText += '\n';
+            
+            for (let ring = 0; ring < numRings; ring++) {
+                const angle1 = (ring / numRings) * (Math.PI / 2);
+                const angle2 = ((ring + 1) / numRings) * (Math.PI / 2);
+                
+                const bottomOuterR = bottomRadius * Math.cos(angle1);
+                const bottomY = (height / bottomRadius) * bottomRadius * Math.sin(angle1);
+                const bottomInnerR = Math.max(0.5, bottomOuterR - thickness);
+                
+                const topOuterR = bottomRadius * Math.cos(angle2);
+                const topY = (height / bottomRadius) * bottomRadius * Math.sin(angle2);
+                const topInnerR = Math.max(0.5, topOuterR - thickness);
+                
+                const angleStep = (Math.PI * 2) / trapezoidsPerRing;
+                
+                for (let i = 0; i < trapezoidsPerRing; i++) {
+                    const azimuthStart = i * angleStep;
+                    const azimuthEnd = (i + 1) * angleStep;
+                    
+                    const p1 = [
+                        bottomOuterR * Math.cos(azimuthStart),
+                        bottomY,
+                        bottomOuterR * Math.sin(azimuthStart)
+                    ];
+                    
+                    const p2 = [
+                        bottomOuterR * Math.cos(azimuthEnd),
+                        bottomY,
+                        bottomOuterR * Math.sin(azimuthEnd)
+                    ];
+                    
+                    const p5 = [
+                        topOuterR * Math.cos(azimuthEnd),
+                        topY,
+                        topOuterR * Math.sin(azimuthEnd)
+                    ];
+                    
+                    const p6 = [
+                        topOuterR * Math.cos(azimuthStart),
+                        topY,
+                        topOuterR * Math.sin(azimuthStart)
+                    ];
+                    
+                    const p3 = [
+                        bottomInnerR * Math.cos(azimuthStart),
+                        bottomY,
+                        bottomInnerR * Math.sin(azimuthStart)
+                    ];
+                    
+                    const p4 = [
+                        bottomInnerR * Math.cos(azimuthEnd),
+                        bottomY,
+                        bottomInnerR * Math.sin(azimuthEnd)
+                    ];
+                    
+                    const p7 = [
+                        topInnerR * Math.cos(azimuthEnd),
+                        topY,
+                        topInnerR * Math.sin(azimuthEnd)
+                    ];
+                    
+                    const p8 = [
+                        topInnerR * Math.cos(azimuthStart),
+                        topY,
+                        topInnerR * Math.sin(azimuthStart)
+                    ];
+                    
+                    const geometry = createTrapezoidEdges(p1, p2, p5, p6, p3, p4, p7, p8);
+                    
+                    const material = new THREE.LineBasicMaterial({
+                        color: ring === numRings - 1 ? 0x00ff88 : 0x00aaff,
+                        linewidth: 1.5
+                    });
+                    
+                    const edges = new THREE.LineSegments(geometry, material);
+                    scene.add(edges);
+                }
+                
+                // Calculate dimensions
+                const ringHeight = topY - bottomY;
+                const bottomOuterArc = 2 * bottomOuterR * Math.sin(angleStep / 2);
+                const bottomInnerArc = 2 * bottomInnerR * Math.sin(angleStep / 2);
+                const topOuterArc = 2 * topOuterR * Math.sin(angleStep / 2);
+                const topInnerArc = 2 * topInnerR * Math.sin(angleStep / 2);
+                const outerSideLength = Math.sqrt(
+                    Math.pow(ringHeight, 2) + 
+                    Math.pow(bottomOuterR - topOuterR, 2)
+                );
+                const innerSideLength = Math.sqrt(
+                    Math.pow(ringHeight, 2) + 
+                    Math.pow(bottomInnerR - topInnerR, 2)
+                );
+                
+                dimensionsText += `Ring ${ring + 1} (from bottom):\n`;
+                dimensionsText += `  Height range: ${bottomY.toFixed(2)} - ${topY.toFixed(2)} cm\n`;
+                dimensionsText += `  Ring height: ${ringHeight.toFixed(2)} cm\n`;
+                dimensionsText += `  Bottom outer radius: ${bottomOuterR.toFixed(2)} cm\n`;
+                dimensionsText += `  Top outer radius: ${topOuterR.toFixed(2)} cm\n`;
+                dimensionsText += `  Each trapezoid:\n`;
+                dimensionsText += `    Bottom outer edge: ${bottomOuterArc.toFixed(2)} cm\n`;
+                dimensionsText += `    Top outer edge: ${topOuterArc.toFixed(2)} cm\n`;
+                dimensionsText += `    Bottom inner edge: ${bottomInnerArc.toFixed(2)} cm\n`;
+                dimensionsText += `    Top inner edge: ${topInnerArc.toFixed(2)} cm\n`;
+                dimensionsText += `    Outer side (slant): ${outerSideLength.toFixed(2)} cm\n`;
+                dimensionsText += `    Inner side (slant): ${innerSideLength.toFixed(2)} cm\n`;
+                dimensionsText += `    Wall thickness: ${thickness} cm\n`;
+                dimensionsText += '\n';
+            }
+            
+            const gridHelper = new THREE.GridHelper(150, 15, 0x444444, 0x222222);
+            scene.add(gridHelper);
+            
+            const axesHelper = new THREE.AxesHelper(60);
+            scene.add(axesHelper);
+            
+            console.log(dimensionsText);
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+        
+        // Event listeners
+        diameterInput.addEventListener('change', buildDome);
+        heightInput.addEventListener('change', buildDome);
+        thicknessInput.addEventListener('change', buildDome);
+        ringsInput.addEventListener('change', buildDome);
+        trapezoidsInput.addEventListener('change', buildDome);
+        
+        copyBtn.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(dimensionsText);
+                copyBtn.textContent = '✓ Copied!';
+                copyBtn.classList.add('copied');
+                setTimeout(() => {
+                    copyBtn.textContent = 'Copy calculated dimensions';
+                    copyBtn.classList.remove('copied');
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy:', err);
+            }
+        });
+        
+        toggleBtn.addEventListener('click', () => {
+            if (panelContent.classList.contains('hidden')) {
+                panelContent.classList.remove('hidden');
+                panelHeader.classList.remove('collapsed');
+                toggleBtn.textContent = '−';
+            } else {
+                panelContent.classList.add('hidden');
+                panelHeader.classList.add('collapsed');
+                toggleBtn.textContent = '+';
+            }
+        });
+        
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        init();
+    </script>
+</body>
+</html>
