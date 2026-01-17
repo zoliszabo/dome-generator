@@ -413,6 +413,12 @@
                     Math.pow(bottomInnerR - topInnerR, 2)
                 );
                 
+                // Calculate trapezoid height (perpendicular distance between parallel edges)
+                const trapezoidOuterHeight = Math.sqrt(
+                    Math.pow(outerSideLength, 2) - 
+                    Math.pow((bottomOuterArc - topOuterArc) / 2, 2)
+                );
+                
                 dimensionsText += `Ring ${ring + 1} (from bottom):\n`;
                 dimensionsText += `  Height range: ${bottomY.toFixed(2)} - ${topY.toFixed(2)} cm\n`;
                 dimensionsText += `  Ring height: ${ringHeight.toFixed(2)} cm\n`;
@@ -425,6 +431,7 @@
                 dimensionsText += `    Top inner edge: ${topInnerArc.toFixed(2)} cm\n`;
                 dimensionsText += `    Outer side (slant): ${outerSideLength.toFixed(2)} cm\n`;
                 dimensionsText += `    Inner side (slant): ${innerSideLength.toFixed(2)} cm\n`;
+                dimensionsText += `    Outer trapezoid height: ${trapezoidOuterHeight.toFixed(2)} cm\n`;
                 dimensionsText += `    Wall thickness: ${thickness} cm\n`;
                 dimensionsText += '\n';
             }
